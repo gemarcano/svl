@@ -6,10 +6,10 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 
-size_t      millis(void);
-bool        enable_burst_mode(void);
-bool        disable_burst_mode(void);
-uint32_t    ap3_gpio_enable_interrupts(uint32_t ui32Pin, uint32_t eIntDir);
+size_t millis(void);
+bool enable_burst_mode(void);
+bool disable_burst_mode(void);
+uint32_t ap3_gpio_enable_interrupts(uint32_t ui32Pin, uint32_t eIntDir);
 
 extern volatile atomic_uint_least32_t ap3_stimer_overflows;
 
