@@ -13,9 +13,11 @@ svl_packet_write_byte_fn_t write_fn = NULL;
 svl_packet_avail_bytes_fn_t avail_fn = NULL;
 svl_packet_millis_fn_t millis_fn = NULL;
 
-uint8_t CRCL, CRCH;
-
-uint16_t CRC_Table[8 * 32] = {
+// CRC-16/UMTS
+// width=16 poly=0x8005 init=0x0000 refin=false refout=false xorout=0x0000
+//   check=0xfee8 residue=0x0000 name="CRC-16/UMTS"
+// https://reveng.sourceforge.io/crc-catalogue/16.htm
+static const uint16_t CRC_Table[8 * 32] = {
     0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011,
     0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0022,
     0x8063, 0x0066, 0x006C, 0x8069, 0x0078, 0x807D, 0x8077, 0x0072,
@@ -50,14 +52,15 @@ uint16_t CRC_Table[8 * 32] = {
     0x8213, 0x0216, 0x021C, 0x8219, 0x0208, 0x820D, 0x8207, 0x0202};
 
 //Update CRC with given byte
-inline __attribute__((always_inline)) void updateCRC(uint8_t num)
+static uint16_t updateCRC(uint16_t crc, uint8_t num)
 {
-  uint16_t tableAddr = (num ^ CRCH);
-  CRCH = (CRC_Table[tableAddr] >> 8) ^ CRCL;
-  CRCL = (CRC_Table[tableAddr] & 0x00FF);
+  uint8_t CRCH = crc >> 8;
+  uint8_t CRCL = crc & 0xFF;
+  uint16_t idx = (num ^ CRCH);
+  return (((CRC_Table[idx] >> 8) ^ CRCL) << 8) | (CRC_Table[idx] & 0xFF);
 }
 
-inline __attribute__((always_inline)) size_t svl_packet_read_byte(uint8_t *c)
+static size_t svl_packet_read_byte(uint8_t *c)
 {
   size_t retval = 0x00;
   if (read_fn != NULL)
@@ -67,7 +70,7 @@ inline __attribute__((always_inline)) size_t svl_packet_read_byte(uint8_t *c)
   return retval;
 }
 
-inline __attribute__((always_inline)) size_t svl_packet_write_byte(uint8_t c)
+static size_t svl_packet_write_byte(uint8_t c)
 {
   size_t retval = 0x00;
   if (write_fn != NULL)
@@ -77,7 +80,7 @@ inline __attribute__((always_inline)) size_t svl_packet_write_byte(uint8_t c)
   return retval;
 }
 
-inline __attribute__((always_inline)) size_t svl_packet_avail_bytes(void)
+static size_t svl_packet_avail_bytes(void)
 {
   size_t retval = 0x00;
   if (avail_fn != NULL)
@@ -87,7 +90,7 @@ inline __attribute__((always_inline)) size_t svl_packet_avail_bytes(void)
   return retval;
 }
 
-inline __attribute__((always_inline)) size_t svl_packet_millis(void)
+static size_t svl_packet_millis(void)
 {
   size_t retval = 0x00;
   if (millis_fn != NULL)
@@ -122,12 +125,10 @@ void svl_packet_link_millis_fn(svl_packet_millis_fn_t fn)
 
 void svl_packet_send(svl_packet_t *packet)
 {
-  CRCL = 0;
-  CRCH = 0;
-  updateCRC(packet->cmd); //Add this byte to CRC
+  uint16_t crc = updateCRC(0, packet->cmd); //Add this byte to CRC
   for (uint32_t x = 0; x < packet->pl_len; x++)
   {
-    updateCRC(*(packet->pl + x)); //Add this byte to CRC
+    crc = updateCRC(crc, *(packet->pl + x)); //Add this byte to CRC
   }
 
   svl_packet_write_byte(((packet->pl_len + 3) >> 8));   // len high byte (including command and CRC bytes)
@@ -143,8 +144,8 @@ void svl_packet_send(svl_packet_t *packet)
     }
   }
 
-  svl_packet_write_byte(CRCH); // CRC H
-  svl_packet_write_byte(CRCL); // CRC L
+  svl_packet_write_byte(crc >> 8); // CRC H
+  svl_packet_write_byte(crc & 0xFF); // CRC L
 }
 
 uint8_t svl_packet_wait(svl_packet_t *packet)
@@ -180,13 +181,11 @@ uint8_t svl_packet_wait(svl_packet_t *packet)
     return (SVL_PACKET_ERR_TIMEOUT | SVL_PACKET_PL);
 
   uint8_t incoming;
-  CRCL = 0;
-  CRCH = 0;
 
   //Get command byte
   svl_packet_read_byte(&incoming);
   packet->cmd = incoming;
-  updateCRC(incoming); //Add this byte to CRC
+  uint16_t crc = updateCRC(0, incoming); //Add this byte to CRC
 
   packet->pl_len = (len - 3);
 
@@ -197,17 +196,15 @@ uint8_t svl_packet_wait(svl_packet_t *packet)
     {
       svl_packet_read_byte(&incoming);
 
-      updateCRC(incoming); //Add this byte to CRC
+      crc = updateCRC(crc, incoming); //Add this byte to CRC
 
       *(packet->pl + x) = incoming; //Fill payload with data
     }
   }
 
-  uint16_t crc = svl_packet_get_uint16_t(); //Read final two bytes into CRC
+  uint16_t remote_crc = svl_packet_get_uint16_t(); //Read final two bytes into CRC
 
-  uint16_t check = ((uint16_t)CRCH << 8) | CRCL;
-
-  if (crc != check)
+  if (remote_crc != crc)
   {
     return (SVL_PACKET_ERR_CRC);
   }
