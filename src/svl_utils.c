@@ -10,18 +10,12 @@
 #define AP3_STIMER_FREQ_MHZ (AP3_STIMER_FREQ_HZ / 1000000)
 
 volatile atomic_uint_least32_t ap3_stimer_overflows = 0x00;
-uint64_t ticks = 0;
 
-static void _fill_ticks(void)
-{
-	ticks = ap3_stimer_overflows;
+size_t millis(void) {
+	uint64_t ticks = ap3_stimer_overflows;
 	ticks <<= 32;
 	ticks |= (am_hal_stimer_counter_get() & 0xFFFFFFFF);
-}
-
-size_t millis(void){
-	_fill_ticks();
-	return (uint32_t)(ticks / AP3_STIMER_FREQ_KHZ);
+	return (size_t)(ticks / AP3_STIMER_FREQ_KHZ);
 }
 
 

@@ -49,6 +49,7 @@ Modified: Juy 22 2019
 #include "am_util.h"
 
 #include "stdint.h"
+#include <assert.h>
 
 #include "svl_ringbuf.h"
 #include "svl_packet.h"
@@ -62,6 +63,9 @@ Modified: Juy 22 2019
 //*****************************************************************************
 #define SVL_VERSION_NUMBER 0x05
 
+extern const size_t _stext;
+extern const size_t _etext;
+
 // ****************************************
 //
 // Bootloader Options
@@ -72,6 +76,7 @@ Modified: Juy 22 2019
 #define BL_RX_PAD         49                // RX pad for BL_UART_INST
 #define BL_TX_PAD         48                // TX pad for BL_UART_INST
 #define USERCODE_OFFSET   (0xC000 + 0x4000) // location in flash to begin storing user's code (Linker script needs to be adjusted to offset user's flash to this address)
+#define USERCODE_RESET_VECTOR (USERCODE_OFFSET + 4)
 #define FRAME_BUFFER_SIZE 512               // maximum number of 4-byte words that can be transmitted in a single frame packet
 
 // ****************************************
@@ -99,12 +104,15 @@ uint8_t debug_buffer[DEBUG_UART_BUF_LEN] = {0};
 // Bootloader Commands
 //
 // ****************************************
-#define CMD_VERSION (0x01)
-#define CMD_BLMODE (0x02)
-#define CMD_NEXT (0x03)
-#define CMD_FRAME (0x04)
-#define CMD_RETRY (0x05)
-#define CMD_DONE (0x06)
+enum command
+{
+	CMD_VERSION = 1,
+	CMD_BLMODE,
+	CMD_NEXT,
+	CMD_FRAME,
+	CMD_RETRY,
+	CMD_DONE,
+};
 
 //*****************************************************************************
 //
@@ -623,40 +631,41 @@ uint8_t handle_frame_packet(svl_packet_t *packet, uint32_t *p_frame_address, uin
 // ****************************************
 void app_start(void)
 {
-	// debug_printf("\n\t-- app start --\n");
-	// #ifdef DEBUG
-	// #ifdef DEBUG_PRINT_APP
-	// uint32_t start_address = USERCODE_OFFSET; // Print a section of flash
-	// debug_printf("Printing page starting at offset 0x%04X\n", start_address);
-	// #ifdef APP_PRINT_PRETTY
-	// for (uint16_t x = 0; x < 512*APP_PRINT_NUM_PAGE; x++){
-	//	 if (x % 8 == 0){
-	//		 debug_printf("\nAdr: 0x%04X", start_address + (x * 4));
-	//	 }
-	//	 debug_printf(" 0x%08X", *(uint32_t *)(start_address + (x * 4)));
-	// }
-	// debug_printf("\n");
-	// #else
-	// for (uint16_t x = 0; x < 512*APP_PRINT_NUM_PAGE; x++){
-	//	 if (x % 4 == 0){
-	//		 debug_printf("\n");
-	//	 }
-	//	 uint32_t wor = *(uint32_t *)(start_address + (x * 4));
-	//	 debug_printf("%02x%02x %02x%02x", (wor & 0x000000FF), (wor & 0x0000FF00) >> 8, (wor & 0x00FF0000) >> 16, (wor & 0xFF000000) >> 24 );
-	//	 if( (x%4) != 3 ){
-	//		 debug_printf(" ");
-	//	 }
-	// }
-	// debug_printf("\n");
-	// #endif // APP_PRINT_PRETTY
-	// #endif // DEBUG_PRINT_APP
-	// #endif // DEBUG
+#ifdef DEBUG
+	debug_printf("\n\t-- app start --\n");
+#ifdef DEBUG_PRINT_APP
+	uint32_t start_address = USERCODE_OFFSET; // Print a section of flash
+	debug_printf("Printing page starting at offset 0x%04X\n", start_address);
+#ifdef APP_PRINT_PRETTY
+	for (uint16_t x = 0; x < 512*APP_PRINT_NUM_PAGE; x++){
+		if (x % 8 == 0){
+			debug_printf("\nAdr: 0x%04X", start_address + (x * 4));
+		}
+		debug_printf(" 0x%08X", *(uint32_t *)(start_address + (x * 4)));
+	}
+	debug_printf("\n");
+#else
+	for (uint16_t x = 0; x < 512*APP_PRINT_NUM_PAGE; x++){
+		if (x % 4 == 0){
+			debug_printf("\n");
+		}
+		uint32_t wor = *(uint32_t *)(start_address + (x * 4));
+		debug_printf("%02x%02x %02x%02x", (wor & 0x000000FF), (wor & 0x0000FF00) >> 8, (wor & 0x00FF0000) >> 16, (wor & 0xFF000000) >> 24 );
+		if( (x%4) != 3 ){
+			debug_printf(" ");
+		}
+	}
+	debug_printf("\n");
+#endif // APP_PRINT_PRETTY
+#endif // DEBUG_PRINT_APP
+#endif // DEBUG
 
-	void *entryPoint = (void *)(*((uint32_t *)(USERCODE_OFFSET + 4)));
+	void (**const entryPoint)(void) = (void (**)(void))(USERCODE_RESET_VECTOR);
 	debug_printf("\nJump to App at 0x%08X\n\n", (uint32_t)entryPoint);
+	// FIXME what if there are no pending writes? Is there a flush function in the SDK?
 	am_util_delay_ms(10); // Wait for prints to complete
 	unsetup();            // Undoes configuration to provide users with a clean slate
-	goto *entryPoint;     // Jump to start of user code
+	(*entryPoint)();     // Jump to start of user code
 }
 
 // ****************************************
