@@ -123,7 +123,7 @@ void svl_packet_link_millis_fn(svl_packet_millis_fn_t fn)
 	millis_fn = fn;
 }
 
-void svl_packet_send(svl_packet_t *packet)
+void svl_packet_send(const svl_packet_t *packet)
 {
 	uint16_t crc = updateCRC(0, packet->cmd); //Add this byte to CRC
 	for (uint32_t x = 0; x < packet->pl_len; x++)
@@ -150,7 +150,6 @@ void svl_packet_send(svl_packet_t *packet)
 
 uint8_t svl_packet_wait(svl_packet_t *packet)
 {
-
 	// wait for 2 bytes (the length bytes)
 	// wait for length bytes to come in
 	// make sure that 'length' bytes are enough to satisfy the desired payload length
@@ -236,6 +235,5 @@ uint8_t svl_packet_wait_bytes(uint32_t num)
 		}
 	}
 
-	// debug_printf("only got %d bytes...\n",avail);
 	return 1;
 }

@@ -37,7 +37,7 @@ void svl_packet_link_write_fn(svl_packet_write_byte_fn_t fn, void *param);
 void svl_packet_link_avail_fn(svl_packet_avail_bytes_fn_t fn, void *param);
 void svl_packet_link_millis_fn(svl_packet_millis_fn_t fn);
 
-void svl_packet_send(svl_packet_t *packet);
+void svl_packet_send(const svl_packet_t *packet);
 uint8_t svl_packet_wait(svl_packet_t *packet);
 
 uint16_t svl_packet_get_uint16_t(void);

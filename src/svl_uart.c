@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <am_mcu_apollo.h>
 
@@ -28,7 +29,7 @@ size_t svl_uart_read(void *pHandle, char* buf, size_t len){
 // UART write buffer
 //
 //*****************************************************************************
-size_t svl_uart_write(void *pHandle, char* buf, size_t len){
+static size_t svl_uart_write(void *pHandle, char* buf, size_t len){
 	uint32_t ui32BytesWritten = 0;
 	const am_hal_uart_transfer_t sUartWrite =
 	{
@@ -59,13 +60,6 @@ size_t svl_uart_write_byte(void *pHandle, uint8_t c){
 //
 //*****************************************************************************
 size_t svl_uart_print(void *pHandle, char* str){
-	uint32_t ui32StrLen = 0;
-	while (str[ui32StrLen] != 0){ ui32StrLen++; } // Measure the length of the string.
+	uint32_t ui32StrLen = strlen(str);
 	return svl_uart_write( pHandle, str, ui32StrLen);
-
-	// uint16_t indi = 0;
-	// while((*(debug_buffer+indi)!='\0') && (indi < DEBUG_UART_BUF_LEN)){
-	// 	svl_uart_write(hUART_debug, debug_buffer+indi, 1);
-	// 	 indi++;
-	// }
 }
