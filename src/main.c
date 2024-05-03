@@ -50,7 +50,6 @@ Modified: April 24 2024
 //
 //*****************************************************************************
 #include "am_mcu_apollo.h"
-#include "am_bsp.h"
 #include "am_util.h"
 
 #include "stdint.h"
@@ -93,32 +92,6 @@ Modified: April 24 2024
 
 //*****************************************************************************
 //
-// Debug Options
-//
-//*****************************************************************************
-
-// uncomment to enable debug output
-//#define DEBUG 1
-
-#ifdef DEBUG
-// debug output baud rate
-#define DEBUG_BAUD_RATE 921600
-// debug UART peripheral instance (should not be the same as BL_UART_INST)
-#define DEBUG_UART_INST 1
-// RX pad for
-#define DEBUG_RX_PAD 25
-#define DEBUG_TX_PAD 24
-#define DEBUG_UART_BUF_LEN 256
-// undefine to not print app pages
-#define DEBUG_PRINT_APP 1
-#define APP_PRINT_NUM_PAGE 1
-// define APP_PRINT_PRETTY for the alternate app data print format
-#undef APP_PRINT_PRETTY
-uint8_t debug_buffer[DEBUG_UART_BUF_LEN] = {0};
-#endif // DEBUG
-
-//*****************************************************************************
-//
 // Bootloader Commands
 //
 //*****************************************************************************
@@ -153,104 +126,16 @@ enum command
 //*****************************************************************************
 
 // pointer to handle for bootloader UART
-void *hUART_bl = NULL;
+static void *hUART_bl = NULL;
 
-#ifdef DEBUG
-// pointer to handle for debug UART
-void *hUART_debug = NULL;
-#endif
-
-uint8_t rx_buffer[BL_UART_BUF_LEN] = {0};
-uint8_t tx_buffer[BL_UART_BUF_LEN] = {0};
+// Storage for UART ring buffers
+static uint8_t rx_buffer[BL_UART_BUF_LEN] = {0};
+static uint8_t tx_buffer[BL_UART_BUF_LEN] = {0};
 
 // The following are used by the UART baud autodetection
 #define BL_BAUD_SAMPLES (5)
-volatile uint8_t bl_baud_ticks_index = 0x00;
-volatile uint32_t bl_baud_ticks[BL_BAUD_SAMPLES] = {0};
-
-//*****************************************************************************
-//
-// Debug routines
-//
-//*****************************************************************************
-
-#ifdef DEBUG
-void start_uart_debug(void)
-{
-	const am_hal_gpio_pincfg_t debug_uart_tx_pinconfig =
-		UART_GPIO_PINCONFIG(DEBUG_UART_INST, TX, DEBUG_TX_PAD);
-	const am_hal_gpio_pincfg_t debug_uart_rx_pinconfig =
-		UART_GPIO_PINCONFIG(DEBUG_UART_INST, RX, DEBUG_RX_PAD);
-	const am_hal_uart_config_t debug_uart_config = {
-		// Standard UART settings: 115200-8-N-1
-		.ui32BaudRate = DEBUG_BAUD_RATE,
-		.ui32DataBits = AM_HAL_UART_DATA_BITS_8,
-		.ui32Parity = AM_HAL_UART_PARITY_NONE,
-		.ui32StopBits = AM_HAL_UART_ONE_STOP_BIT,
-		.ui32FlowControl = AM_HAL_UART_FLOW_CTRL_NONE,
-
-		// Set TX and RX FIFOs to interrupt at half-full.
-		.ui32FifoLevels = (AM_HAL_UART_TX_FIFO_1_2 |
-			 AM_HAL_UART_RX_FIFO_1_2),
-
-		// Buffers
-		.pui8TxBuffer = NULL,
-		.ui32TxBufferSize = 0,
-		.pui8RxBuffer = NULL,
-		.ui32RxBufferSize = 0,
-	};
-
-	// Initialize the printf interface for UART output.
-	am_hal_uart_initialize(DEBUG_UART_INST, &hUART_debug);
-	am_hal_uart_power_control(hUART_debug, AM_HAL_SYSCTRL_WAKE, false);
-	am_hal_uart_configure(hUART_debug, &debug_uart_config);
-
-	// Disable UART FIFO as we don't want to deal with reading from the FIFO,
-	// we'll just read immediately
-	UARTn(DEBUG_UART_INST)->LCRH_b.FEN = 0;
-
-	// Enable the UART pins.
-	am_hal_gpio_pinconfig(DEBUG_TX_PAD, debug_uart_tx_pinconfig);
-	am_hal_gpio_pinconfig(DEBUG_RX_PAD, debug_uart_rx_pinconfig);
-
-	// Enable interrupts.
-	NVIC_EnableIRQ((IRQn_Type)(UART0_IRQn + DEBUG_UART_INST));
-	am_hal_uart_interrupt_enable(hUART_debug, (AM_HAL_UART_INT_RX));
-}
-
-void stop_uart_debug(void)
-{
-	// Deinitialize the UART printf interface.
-	am_hal_uart_power_control(hUART_debug, AM_HAL_SYSCTRL_DEEPSLEEP, false);
-	am_hal_uart_deinitialize(hUART_debug);
-
-	// Re-enable that pesky FIFO
-	UARTn(DEBUG_UART_INST)->LCRH_b.FEN = 1;
-
-	// Disable the UART pins.
-	am_hal_gpio_pinconfig(DEBUG_TX_PAD, g_AM_HAL_GPIO_DISABLE);
-	am_hal_gpio_pinconfig(DEBUG_RX_PAD, g_AM_HAL_GPIO_DISABLE);
-
-	// Disable interrupts.
-	NVIC_DisableIRQ((IRQn_Type)(UART0_IRQn + DEBUG_UART_INST));
-	am_hal_uart_interrupt_disable(hUART_debug, (AM_HAL_UART_INT_RX));
-}
-#endif // DEBUG
-
-void debug_printf(char *fmt, ...)
-{
-#ifdef DEBUG
-	char debug_buffer[DEBUG_UART_BUF_LEN];
-	va_list args;
-	va_start(args, fmt);
-	vsnprintf(debug_buffer, DEBUG_UART_BUF_LEN, (const char *)fmt, args);
-	va_end(args);
-
-	svl_uart_print(hUART_debug, debug_buffer);
-#else
-	(void)fmt;
-#endif //DEBUG
-}
+static volatile uint8_t bl_baud_ticks_index = 0x00;
+static volatile uint32_t bl_baud_ticks[BL_BAUD_SAMPLES] = {0};
 
 //*****************************************************************************
 //
@@ -275,10 +160,6 @@ static void setup(void)
 	am_hal_stimer_config(AM_HAL_STIMER_CFG_CLEAR | AM_HAL_STIMER_CFG_FREEZE);
 	am_hal_stimer_config(AM_HAL_STIMER_HFRC_3MHZ);
 
-#ifdef DEBUG
-	start_uart_debug();
-#endif
-
 	// Enable interrupts.
 	am_hal_interrupt_master_enable();
 }
@@ -294,10 +175,6 @@ static void unsetup(void)
 	NVIC_DisableIRQ(STIMER_IRQn);
 	am_hal_stimer_config(AM_HAL_STIMER_CFG_CLEAR | AM_HAL_STIMER_CFG_FREEZE);
 	am_hal_stimer_config(AM_HAL_STIMER_NO_CLK);
-
-#ifdef DEBUG
-	stop_uart_debug();
-#endif
 
 	// Disable interrupts.
 	am_hal_interrupt_master_disable();
@@ -323,8 +200,6 @@ static void unsetup(void)
  */
 static bool detect_baud_rate(uint32_t *baud)
 {
-	debug_printf("phase:\tdetect baud rate\n");
-
 	enable_burst_mode();
 	const am_hal_gpio_pincfg_t input_pullup_lo2hi =
 	{
@@ -403,34 +278,6 @@ static bool detect_baud_rate(uint32_t *baud)
 		// else invalid
 	}
 
-#ifdef DEBUG
-	bool timed_out = bl_baud_ticks_index != BL_BAUD_SAMPLES;
-	// show differences for debugging purposes
-	debug_printf("\ttiming differences: { ");
-	for (uint8_t indi = 0; indi < (BL_BAUD_SAMPLES - 1); indi++)
-	{
-		debug_printf("%d", bl_baud_ticks[indi]);
-		if (indi < (BL_BAUD_SAMPLES - 2))
-		{
-			debug_printf(", ");
-		}
-	}
-	debug_printf("}\n");
-
-	if (!baud_is_valid)
-	{
-		debug_printf(
-			"\tbaud rate not detected.\n"
-			"\t\trising edges:\t%d\n"
-			"\t\ttimed out:\t%d\n\n",
-			bl_baud_ticks_index, timed_out);
-	}
-	else
-	{
-		debug_printf("\tdetected valid baud rate:\t%d\n\n", *baud);
-	}
-#endif // DEBUG
-
 	return baud_is_valid;
 }
 
@@ -500,15 +347,9 @@ static uint8_t handle_frame_packet(
 {
 	const uint32_t num_words = (packet->pl_len / 4);
 
-	debug_printf(
-		"\t\tframe_address = 0x%08X, num_words = %d\n",
-		*(p_frame_address), num_words);
-
 	// Check payload length is multiple of words
 	if ((packet->pl_len % 4))
 	{
-		debug_printf(
-			"Error: frame packet not integer multiple of words (4 bytes per word)\n");
 		return 1;
 	}
 
@@ -526,8 +367,7 @@ static uint8_t handle_frame_packet(
 
 		if (i32ReturnCode)
 		{
-			debug_printf(
-				"FLASH_MASS_ERASE i32ReturnCode = 0x%x.\n\r", i32ReturnCode);
+			//FIXME what should we do if we get a bad return code?
 		}
 	}
 
@@ -540,7 +380,7 @@ static uint8_t handle_frame_packet(
 
 	if (i32ReturnCode)
 	{
-		debug_printf("FLASH_WRITE error = 0x%x.\n\r", i32ReturnCode);
+		// flash write error
 		return 1;
 	}
 
@@ -578,8 +418,6 @@ static void enter_bootload(void)
 		.max_pl_len = 0
 	};
 
-	debug_printf("phase:\tbootload\n");
-
 	bool done = false;
 	// Current offset/address of payload being processed
 	uint32_t frame_address = 0;
@@ -591,13 +429,11 @@ static void enter_bootload(void)
 	{
 		if (retransmit != 0)
 		{
-			debug_printf("\trequesting retransmission\n");
 			svl_packet_send(&svl_packet_retry); // Ask to retransmit
 			am_hal_uart_tx_flush(hUART_bl);
 		}
 		else
 		{
-			debug_printf("\trequesting next app frame\n");
 			svl_packet_send(&svl_packet_next); // Ask for the next frame packet
 			am_hal_uart_tx_flush(hUART_bl);
 		}
@@ -606,8 +442,8 @@ static void enter_bootload(void)
 		uint8_t stat = svl_packet_wait(&svl_packet_incoming_frame);
 		if (stat != 0)
 		{
+			// Some error occurred receiving a packet,
 			// wait for either a frame or the done command
-			debug_printf("\t\terror receiving packet (%d)\n", stat);
 			retransmit = 1;
 			am_util_delay_us(177000); //Worst case: wait 177ms for 2048 byte transfer at 115200bps to complete
 
@@ -621,26 +457,20 @@ static void enter_bootload(void)
 			continue;
 		}
 
-		// debug_printf("Successfully received incoming frame packet (todo: add extra details in debug)\n", stat);
-
 		if (svl_packet_incoming_frame.cmd == CMD_FRAME)
 		{
-			debug_printf("\t\treceived an app frame\n");
 			if (handle_frame_packet(&svl_packet_incoming_frame, &frame_address, &last_page_erased) != 0)
 			{
-				// debug_printf("\t\t\tbootload error - packet could not be handled\n");
 				retransmit = 1;
 				continue;
 			}
 		}
 		else if (svl_packet_incoming_frame.cmd == CMD_DONE)
 		{
-			debug_printf("\t\treceived done signal!\n\n");
 			done = true;
 		}
 		else
 		{
-			debug_printf("bootload error - unknown command\n");
 			retransmit = 1;
 			continue;
 		}
@@ -659,42 +489,13 @@ void app_jump(void(*)(void));
 [[noreturn]]
 static void app_start(void)
 {
-	debug_printf("\n\t-- app start --\n");
-#ifdef DEBUG_PRINT_APP
-	uint32_t start_address = USERCODE_OFFSET; // Print a section of flash
-	debug_printf("Printing page starting at offset 0x%04X\n", start_address);
-#ifdef APP_PRINT_PRETTY
-	for (uint16_t x = 0; x < 512*APP_PRINT_NUM_PAGE; x++){
-		if (x % 8 == 0){
-			debug_printf("\nAdr: 0x%04X", start_address + (x * 4));
-		}
-		debug_printf(" 0x%08X", *(uint32_t *)(start_address + (x * 4)));
-	}
-	debug_printf("\n");
-#else
-	for (uint16_t x = 0; x < 512*APP_PRINT_NUM_PAGE; x++){
-		if (x % 4 == 0){
-			debug_printf("\n");
-		}
-		uint32_t wor = *(uint32_t *)(start_address + (x * 4));
-		debug_printf("%02x%02x %02x%02x", (wor & 0x000000FF), (wor & 0x0000FF00) >> 8, (wor & 0x00FF0000) >> 16, (wor & 0xFF000000) >> 24 );
-		if( (x%4) != 3 ){
-			debug_printf(" ");
-		}
-	}
-	debug_printf("\n");
-#endif // APP_PRINT_PRETTY
-#endif // DEBUG_PRINT_APP
-
-	void (**const entryPoint)(void) = (void (**)(void))(USERCODE_RESET_VECTOR);
-	debug_printf("\nJump to App at 0x%08X\n\n", (uint32_t)entryPoint);
-	// FIXME what if there are no pending writes? Is there a flush function in the SDK?
-	am_util_delay_ms(10); // Wait for prints to complete
-	unsetup();            // Undoes configuration to provide users with a clean slate
+	// Undoes configuration to provide users with a clean slate
+	unsetup();
 
 	// Jump to start of user code
 	// Using assembly since we're overriding the LR register to point to the
 	// application's reset vector
+	void (**const entryPoint)(void) = (void (**)(void))(USERCODE_RESET_VECTOR);
 	app_jump(*entryPoint);
 }
 
@@ -726,8 +527,6 @@ int main(void)
 
 	setup();
 
-	debug_printf("\n\nArtemis SVL Bootloader - DEBUG\n\n");
-
 	// Detects the baud rate. Returns true if a valid baud rate was found
 	uint32_t bl_baud = 0x00;
 	if (detect_baud_rate(&bl_baud) == false)
@@ -735,15 +534,14 @@ int main(void)
 		app_start(); // w/o valid baud rate jump t the app
 	}
 
+	// FIXME verify that the blip is real! I don't see any reason in software for it to exist
 	start_uart_bl(bl_baud); // This will create a 23 us wide low 'blip' on the TX line (until possibly fixed)
 	am_util_delay_us(200);  // At the minimum baud rate of 115200 one byte (10 bits with start/stop) takes 10/115200 or 87 us. 87+23 = 100, double to be safe
 
-	debug_printf("phase:\tconfirm bootloading entry\n");
-	debug_printf("\tsending Artemis SVL version packet\n");
-	uint8_t packet_ver_buf[1] = {SVL_VERSION_NUMBER};
+	const uint8_t packet_ver_buf[1] = {SVL_VERSION_NUMBER};
 	const svl_packet_t svl_packet_version = {
 		.cmd = CMD_VERSION,
-		.pl = packet_ver_buf,
+		.pl = (uint8_t*)packet_ver_buf,
 		.pl_len = sizeof(packet_ver_buf),
 		.max_pl_len = sizeof(packet_ver_buf)
 	};
@@ -751,20 +549,18 @@ int main(void)
 	svl_packet_send(&svl_packet_version); // when baud rate is determined send the version packet
 	am_hal_uart_tx_flush(hUART_bl);
 
-	debug_printf("\twaiting for bootloader confirmation\n");
 	svl_packet_t svl_packet_blmode = {
 		.cmd = CMD_BLMODE,
 		.pl = NULL,
 		.pl_len = 0,
 		.max_pl_len = 0
 	};
+
 	if (svl_packet_wait(&svl_packet_blmode) != 0)
 	{ // wait for the bootloader to confirm bootloader mode entry
-		debug_printf("\tno confirmation received\n");
 		stop_uart_bl();
 		app_start(); // break to app
 	}
-	debug_printf("\tentering bootloader\n\n");
 
 	enter_bootload(); // Now we are locked in
 
@@ -786,12 +582,6 @@ void am_uart_isr(void)
 	am_hal_uart_interrupt_status_get(hUART_bl, &ui32Status, true);
 	am_hal_uart_interrupt_clear(hUART_bl, ui32Status);
 	am_hal_uart_interrupt_service(hUART_bl, ui32Status, &ui32Idle);
-#else
-#ifdef DEBUG
-	am_hal_uart_interrupt_status_get(hUART_debug, &ui32Status, true);
-	am_hal_uart_interrupt_clear(hUART_debug, ui32Status);
-	am_hal_uart_interrupt_service(hUART_debug, ui32Status, &ui32Idle);
-#endif // DEBUG
 #endif // BL_UART_INST == 0
 }
 
@@ -804,13 +594,6 @@ void am_uart1_isr(void)
 	am_hal_uart_interrupt_status_get(hUART_bl, &ui32Status, true);
 	am_hal_uart_interrupt_clear(hUART_bl, ui32Status);
 	am_hal_uart_interrupt_service(hUART_bl, ui32Status, &ui32Idle);
-#else
-#ifdef DEBUG
-	uint32_t ui32Status, ui32Idle;
-	am_hal_uart_interrupt_status_get(hUART_debug, &ui32Status, true);
-	am_hal_uart_interrupt_clear(hUART_debug, ui32Status);
-	am_hal_uart_interrupt_service(hUART_debug, ui32Status, &ui32Idle);
-#endif // DEBUG
 #endif // BL_UART_INST == 0
 }
 
