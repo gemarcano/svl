@@ -32,7 +32,6 @@ asimple_lib = dependency('asimple_rba_atp')
 # This section is for building most of the program as a library
 lib_sources = files([
   'src/svl_packet.c',
-  'src/svl_ringbuf.c',
   'src/svl_uart.c',
   'src/svl_utils.c',
 ])
@@ -64,6 +63,7 @@ endif
 # Section defining the executable
 sources = files([
   'src/main.c',
+  'src/main.S',
 ])
 
 exe = executable(meson.project_name(),

@@ -56,7 +56,6 @@ Modified: April 24 2024
 #include "stdint.h"
 #include <assert.h>
 
-#include "svl_ringbuf.h"
 #include "svl_packet.h"
 #include "svl_uart.h"
 #include "svl_utils.h"
@@ -152,12 +151,6 @@ enum command
 // Globals
 //
 //*****************************************************************************
-static art_svl_ringbuf_t bl_rx_ringbuf = {
-	.buf = NULL,
-	.len = 0,
-	.r_offset = 0,
-	.w_offset = 0,
-};
 
 // pointer to handle for bootloader UART
 void *hUART_bl = NULL;
@@ -166,6 +159,9 @@ void *hUART_bl = NULL;
 // pointer to handle for debug UART
 void *hUART_debug = NULL;
 #endif
+
+uint8_t rx_buffer[BL_UART_BUF_LEN] = {0};
+uint8_t tx_buffer[BL_UART_BUF_LEN] = {0};
 
 // The following are used by the UART baud autodetection
 #define BL_BAUD_SAMPLES (5)
@@ -459,16 +455,12 @@ static void start_uart_bl(uint32_t baud)
 			 AM_HAL_UART_RX_FIFO_1_2),
 
 		// Buffers
-		.pui8TxBuffer = NULL,
-		.ui32TxBufferSize = 0,
-		.pui8RxBuffer = NULL,
-		.ui32RxBufferSize = 0,
+		.pui8TxBuffer = tx_buffer,
+		.ui32TxBufferSize = sizeof(tx_buffer),
+		.pui8RxBuffer = rx_buffer,
+		.ui32RxBufferSize = sizeof(rx_buffer),
 	};
 	am_hal_uart_configure(hUART_bl, &bl_uart_config);
-
-	// Disable UART FIFO as we don't want to deal with reading from the FIFO,
-	// we'll just read immediately
-	UARTn(BL_UART_INST)->LCRH_b.FEN = 0;
 
 	// Enable the UART pins.
 	const am_hal_gpio_pincfg_t bl_uart_tx_pinconfig =
@@ -484,10 +476,9 @@ static void start_uart_bl(uint32_t baud)
 	am_hal_uart_interrupt_enable(hUART_bl, (AM_HAL_UART_INT_RX));
 
 	// Provide SVL Packet interfaces
-	svl_packet_link_read_fn(art_svl_ringbuf_read, &bl_rx_ringbuf);
-	svl_packet_link_avail_fn(art_svl_ringbuf_available, &bl_rx_ringbuf);
+	svl_packet_link_read_fn(svl_uart_read, hUART_bl);
 	svl_packet_link_millis_fn(millis);
-	svl_packet_link_write_fn(svl_uart_write_byte, hUART_bl);
+	svl_packet_link_write_fn(svl_uart_write, hUART_bl);
 }
 
 // Disable UART interface
@@ -602,24 +593,31 @@ static void enter_bootload(void)
 		{
 			debug_printf("\trequesting retransmission\n");
 			svl_packet_send(&svl_packet_retry); // Ask to retransmit
+			am_hal_uart_tx_flush(hUART_bl);
 		}
 		else
 		{
 			debug_printf("\trequesting next app frame\n");
 			svl_packet_send(&svl_packet_next); // Ask for the next frame packet
+			am_hal_uart_tx_flush(hUART_bl);
 		}
 		retransmit = 0;
 
 		uint8_t stat = svl_packet_wait(&svl_packet_incoming_frame);
 		if (stat != 0)
-		{ // wait for either a frame or the done command
+		{
+			// wait for either a frame or the done command
 			debug_printf("\t\terror receiving packet (%d)\n", stat);
 			retransmit = 1;
 			am_util_delay_us(177000); //Worst case: wait 177ms for 2048 byte transfer at 115200bps to complete
 
 			//Flush the buffers to remove any inbound or outbound garbage
-			bl_rx_ringbuf.r_offset = 0;
-			bl_rx_ringbuf.w_offset = 0;
+			am_hal_uart_tx_flush(hUART_bl);
+			uint8_t tmp[BL_UART_BUF_LEN];
+			while(svl_uart_read(hUART_bl, tmp, sizeof(tmp)) == sizeof(tmp))
+			{
+				// Just wait until we're no longer receiving any data.
+			}
 			continue;
 		}
 
@@ -651,7 +649,14 @@ static void enter_bootload(void)
 	// finish bootloading
 }
 
+// External function that does the actual jump, written in assembly since we're
+// screwing around with the LR register, and that may/may not confuse GCC.
+// Plus, it's easier to mark that as noreturn and have GCC believe us.
+[[noreturn]]
+void app_jump(void(*)(void));
+
 // Jump to the application
+[[noreturn]]
 static void app_start(void)
 {
 	debug_printf("\n\t-- app start --\n");
@@ -686,7 +691,11 @@ static void app_start(void)
 	// FIXME what if there are no pending writes? Is there a flush function in the SDK?
 	am_util_delay_ms(10); // Wait for prints to complete
 	unsetup();            // Undoes configuration to provide users with a clean slate
-	(*entryPoint)();     // Jump to start of user code
+
+	// Jump to start of user code
+	// Using assembly since we're overriding the LR register to point to the
+	// application's reset vector
+	app_jump(*entryPoint);
 }
 
 //*****************************************************************************
@@ -709,12 +718,12 @@ int main(void)
 	uint32_t boot_select;
     am_hal_gpio_state_read(47, AM_HAL_GPIO_INPUT_READ, &boot_select);
 
+	// FIXME enable this for Artemia!
 	/*if (!boot_select)
 	{
 		app_start();
 	}*/
 
-#define PLLEN_VER 1
 	setup();
 
 	debug_printf("\n\nArtemis SVL Bootloader - DEBUG\n\n");
@@ -726,22 +735,21 @@ int main(void)
 		app_start(); // w/o valid baud rate jump t the app
 	}
 
-	uint8_t bl_buffer[BL_UART_BUF_LEN] = {0};
-	art_svl_ringbuf_init(&bl_rx_ringbuf, bl_buffer, BL_UART_BUF_LEN);
 	start_uart_bl(bl_baud); // This will create a 23 us wide low 'blip' on the TX line (until possibly fixed)
 	am_util_delay_us(200);  // At the minimum baud rate of 115200 one byte (10 bits with start/stop) takes 10/115200 or 87 us. 87+23 = 100, double to be safe
 
 	debug_printf("phase:\tconfirm bootloading entry\n");
 	debug_printf("\tsending Artemis SVL version packet\n");
-	uint8_t packet_ver_buf[PLLEN_VER] = {SVL_VERSION_NUMBER};
+	uint8_t packet_ver_buf[1] = {SVL_VERSION_NUMBER};
 	const svl_packet_t svl_packet_version = {
 		.cmd = CMD_VERSION,
 		.pl = packet_ver_buf,
-		.pl_len = PLLEN_VER,
-		.max_pl_len = PLLEN_VER
+		.pl_len = sizeof(packet_ver_buf),
+		.max_pl_len = sizeof(packet_ver_buf)
 	};
 
 	svl_packet_send(&svl_packet_version); // when baud rate is determined send the version packet
+	am_hal_uart_tx_flush(hUART_bl);
 
 	debug_printf("\twaiting for bootloader confirmation\n");
 	svl_packet_t svl_packet_blmode = {
@@ -759,15 +767,9 @@ int main(void)
 	debug_printf("\tentering bootloader\n\n");
 
 	enter_bootload(); // Now we are locked in
-	am_util_delay_ms(10);
 
 	am_hal_reset_control(AM_HAL_RESET_CONTROL_SWPOI, 0); //Cause a system Power On Init to release as much of the stack as possible
-
-	debug_printf("ERROR - runoff");
-	while (1)
-	{	// Loop forever while sleeping.
-		am_hal_sysctrl_sleep(AM_HAL_SYSCTRL_SLEEP_DEEP); // Go to Deep Sleep.
-	}
+	__builtin_unreachable();
 }
 
 //*****************************************************************************
@@ -784,14 +786,6 @@ void am_uart_isr(void)
 	am_hal_uart_interrupt_status_get(hUART_bl, &ui32Status, true);
 	am_hal_uart_interrupt_clear(hUART_bl, ui32Status);
 	am_hal_uart_interrupt_service(hUART_bl, ui32Status, &ui32Idle);
-	if (ui32Status & AM_HAL_UART_INT_RX)
-	{
-		uint8_t c = 0x00;
-		if (svl_uart_read(hUART_bl, (char *)&c, 1) != 0)
-		{
-			art_svl_ringbuf_write(&bl_rx_ringbuf, c);
-		}
-	}
 #else
 #ifdef DEBUG
 	am_hal_uart_interrupt_status_get(hUART_debug, &ui32Status, true);
@@ -810,14 +804,6 @@ void am_uart1_isr(void)
 	am_hal_uart_interrupt_status_get(hUART_bl, &ui32Status, true);
 	am_hal_uart_interrupt_clear(hUART_bl, ui32Status);
 	am_hal_uart_interrupt_service(hUART_bl, ui32Status, &ui32Idle);
-	if (ui32Status & AM_HAL_UART_INT_RX)
-	{
-		uint8_t c = 0x00;
-		if (read(hUART_bl, &c, 1) != 0)
-		{
-			art_svl_ringbuf_write(&bl_rx_ringbuf, c);
-		}
-	}
 #else
 #ifdef DEBUG
 	uint32_t ui32Status, ui32Idle;

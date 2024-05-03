@@ -11,11 +11,11 @@
 // UART read buffer
 //
 //*****************************************************************************
-size_t svl_uart_read(void *pHandle, char* buf, size_t len){
+size_t svl_uart_read(void *pHandle, uint8_t* buf, size_t len){
 	uint32_t ui32BytesRead = 0x00;
 	am_hal_uart_transfer_t sRead = {
 		.ui32Direction = AM_HAL_UART_READ,
-		.pui8Data = (uint8_t*)buf,
+		.pui8Data = buf,
 		.ui32NumBytes = len,
 		.ui32TimeoutMs = 0,
 		.pui32BytesTransferred = &ui32BytesRead,
@@ -29,12 +29,12 @@ size_t svl_uart_read(void *pHandle, char* buf, size_t len){
 // UART write buffer
 //
 //*****************************************************************************
-static size_t svl_uart_write(void *pHandle, char* buf, size_t len){
+size_t svl_uart_write(void *pHandle, const uint8_t* buf, size_t len){
 	uint32_t ui32BytesWritten = 0;
 	const am_hal_uart_transfer_t sUartWrite =
 	{
 		.ui32Direction = AM_HAL_UART_WRITE,
-		.pui8Data = (uint8_t*) buf,
+		.pui8Data = (uint8_t*)buf,
 		.ui32NumBytes = len,
 		.ui32TimeoutMs = AM_HAL_UART_WAIT_FOREVER,
 		.pui32BytesTransferred = &ui32BytesWritten,
@@ -47,19 +47,10 @@ static size_t svl_uart_write(void *pHandle, char* buf, size_t len){
 
 //*****************************************************************************
 //
-// UART write byte
-//
-//*****************************************************************************
-size_t svl_uart_write_byte(void *pHandle, uint8_t c){
-	return svl_uart_write(pHandle, (char*)&c, 1);
-}
-
-//*****************************************************************************
-//
 // UART send string
 //
 //*****************************************************************************
-size_t svl_uart_print(void *pHandle, char* str){
+size_t svl_uart_print(void *pHandle, const char* str){
 	uint32_t ui32StrLen = strlen(str);
-	return svl_uart_write( pHandle, str, ui32StrLen);
+	return svl_uart_write(pHandle, (const uint8_t*)str, ui32StrLen);
 }

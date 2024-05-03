@@ -27,14 +27,12 @@ enum
 	SVL_PACKET_PL = 0x40,          // flag indicating payload
 };
 
-typedef size_t (*svl_packet_read_byte_fn_t)(void *, uint8_t *);
-typedef size_t (*svl_packet_write_byte_fn_t)(void *, uint8_t);
-typedef size_t (*svl_packet_avail_bytes_fn_t)(void *);
+typedef size_t (*svl_packet_read_fn_t)(void *, uint8_t *, size_t);
+typedef size_t (*svl_packet_write_fn_t)(void *, const uint8_t *, size_t);
 typedef size_t (*svl_packet_millis_fn_t)(void);
 
-void svl_packet_link_read_fn(svl_packet_read_byte_fn_t fn, void *param);
-void svl_packet_link_write_fn(svl_packet_write_byte_fn_t fn, void *param);
-void svl_packet_link_avail_fn(svl_packet_avail_bytes_fn_t fn, void *param);
+void svl_packet_link_read_fn(svl_packet_read_fn_t fn, void *param);
+void svl_packet_link_write_fn(svl_packet_write_fn_t fn, void *param);
 void svl_packet_link_millis_fn(svl_packet_millis_fn_t fn);
 
 void svl_packet_send(const svl_packet_t *packet);
