@@ -10,9 +10,13 @@
 .func app_jump
 .type app_jump, function
 app_jump:
-	mov lr, r0
-	bx r0
-app_jump_hang:
+	# Have LR point to the reset vector of the application
+	ldr lr, [r0, 4]
+	# Update the stack pointer to that of the application
+	ldr sp, [r0, 0]
+	# Just jump, don't bother linking LR
+	bx lr
+0: # loop indefinitely
 	bkpt
-	b app_jump_hang
+	b 0b
 .endfunc

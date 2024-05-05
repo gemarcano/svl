@@ -85,8 +85,6 @@ Modified: April 24 2024
 // location in flash to store user's code
 // (Linker script vectors must match this address)
 #define USERCODE_OFFSET   (0xC000 + 0x4000)
-// location in flash of reset vector in user's vector table
-#define USERCODE_RESET_VECTOR (USERCODE_OFFSET + 4)
 // maximum number of 4-byte words that can be transmitted in one frame packet
 #define FRAME_BUFFER_SIZE 512
 
@@ -483,7 +481,7 @@ static void enter_bootload(void)
 // screwing around with the LR register, and that may/may not confuse GCC.
 // Plus, it's easier to mark that as noreturn and have GCC believe us.
 [[noreturn]]
-void app_jump(void(*)(void));
+void app_jump(void*);
 
 // Jump to the application
 [[noreturn]]
@@ -495,8 +493,7 @@ static void app_start(void)
 	// Jump to start of user code
 	// Using assembly since we're overriding the LR register to point to the
 	// application's reset vector
-	void (**const entryPoint)(void) = (void (**)(void))(USERCODE_RESET_VECTOR);
-	app_jump(*entryPoint);
+	app_jump((void*)USERCODE_OFFSET);
 }
 
 //*****************************************************************************
