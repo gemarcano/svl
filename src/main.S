@@ -16,7 +16,4 @@ app_jump:
 	ldr sp, [r0, 0]
 	# Just jump, don't bother linking LR
 	bx lr
-0: # loop indefinitely
-	bkpt
-	b 0b
 .endfunc

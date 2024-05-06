@@ -95,12 +95,66 @@ Modified: April 24 2024
 //*****************************************************************************
 enum command
 {
+	/** Command containing the SVL version.
+	 *
+	 * This is sent from the device to the svl application.
+	 *
+	 * Payload contains a single byte, representing the SVL version.
+	 */
 	CMD_VERSION = 1,
+	/** Command requesting bootloader to enter into flashing state.
+	 *
+	 * This is sent by the svl application to the device.
+	 *
+	 * There is no payload.
+	 */
 	CMD_BLMODE,
+	/** Command asking for more data to flash to the device.
+	 *
+	 * This is sent by the device to the svl application.
+	 *
+	 * There is no payload.
+	 */
 	CMD_NEXT,
+	/** Command with data to flash.
+	 *
+	 * This is sent by the svl application to the device.
+	 *
+	 * The payload is at most FRAME_BUFFER_SIZE bytes of data to be flashed
+	 * onto the device.
+	 */
 	CMD_FRAME,
+	/** Command requesting previous data to be retransmitted.
+	 *
+	 * This is sent by the device to the svl application.
+	 *
+	 * There is no payload.
+	 */
 	CMD_RETRY,
+	/** Command indicating that there is no more data to flash.
+	 *
+	 * This is sent by the svl application to the device.
+	 *
+	 * There is no payload.
+	 */
 	CMD_DONE,
+	/** Command requesting data from memory.
+	 *
+	 * This is sent by the svl application to the device.
+	 *
+	 * The payload contains the address in 4 bytes to read from memory, and 4
+	 * bytes indicating how many bytes to read. The two numbers must be in
+	 * network byte order.
+	 */
+	CMD_READ = 100,
+	/** Command with data from memory.
+	 *
+	 * This is sent by the device to the svl application.
+	 *
+	 * The payload contains the contents of memory requested by CMD_READ, with
+	 * lowest memory addresses first.
+	 */
+	CMD_READ_RESP,
 };
 
 //*****************************************************************************
@@ -422,27 +476,30 @@ static void enter_bootload(void)
 	// Page number in flash that was last erased during programming
 	uint16_t last_page_erased = 0;
 	// The current retransmit count, 0 means this is the first transmit attempt
-	uint8_t retransmit = 0;
+	bool retransmit = false;
 	while (!done)
 	{
-		if (retransmit != 0)
+		// Always send a NEXT or RETRY command
+		// Effectively, NEXT acts like an ACK or that we're waiting for the
+		// next command
+		if (retransmit)
 		{
 			svl_packet_send(&svl_packet_retry); // Ask to retransmit
 			am_hal_uart_tx_flush(hUART_bl);
+			retransmit = false;
 		}
 		else
 		{
 			svl_packet_send(&svl_packet_next); // Ask for the next frame packet
 			am_hal_uart_tx_flush(hUART_bl);
 		}
-		retransmit = 0;
 
 		uint8_t stat = svl_packet_wait(&svl_packet_incoming_frame);
 		if (stat != 0)
 		{
 			// Some error occurred receiving a packet,
 			// wait for either a frame or the done command
-			retransmit = 1;
+			retransmit = true;
 			am_util_delay_us(177000); //Worst case: wait 177ms for 2048 byte transfer at 115200bps to complete
 
 			//Flush the buffers to remove any inbound or outbound garbage
@@ -455,22 +512,46 @@ static void enter_bootload(void)
 			continue;
 		}
 
-		if (svl_packet_incoming_frame.cmd == CMD_FRAME)
+		switch (svl_packet_incoming_frame.cmd)
 		{
+		case CMD_FRAME:
 			if (handle_frame_packet(&svl_packet_incoming_frame, &frame_address, &last_page_erased) != 0)
 			{
-				retransmit = 1;
-				continue;
+				retransmit = true;
 			}
-		}
-		else if (svl_packet_incoming_frame.cmd == CMD_DONE)
-		{
+			break;
+		case CMD_DONE:
 			done = true;
-		}
-		else
-		{
-			retransmit = 1;
-			continue;
+			break;
+		case CMD_READ:
+			if (svl_packet_incoming_frame.pl_len == 8)
+			{
+				//FIXME what if address is invalid?
+				uint8_t *address = (uint8_t*)(((uint32_t)svl_packet_incoming_frame.pl[0]) << 24 |
+					svl_packet_incoming_frame.pl[1] << 16 |
+					svl_packet_incoming_frame.pl[2] << 8 |
+					svl_packet_incoming_frame.pl[3] << 0);
+				uint32_t size = ((svl_packet_incoming_frame.pl[4]) << 24 |
+					svl_packet_incoming_frame.pl[5] << 16 |
+					svl_packet_incoming_frame.pl[6] << 8 |
+					svl_packet_incoming_frame.pl[7] << 0);
+				const svl_packet_t svl_packet_response = {
+					.cmd = CMD_READ_RESP,
+					.pl = address,
+					.pl_len = size,
+					.max_pl_len = size
+				};
+				svl_packet_send(&svl_packet_response);
+				am_hal_uart_tx_flush(hUART_bl);
+			}
+			else
+			{
+				retransmit = true;
+			}
+			break;
+		default:
+			retransmit = true;
+			break;
 		}
 	}
 
