@@ -14,6 +14,21 @@ typedef struct _svl_packet_t
 	uint16_t max_pl_len; //   - This is the number of bytes pointed to by 'pl'
 } svl_packet_t;
 
+typedef size_t (*svl_packet_read_fn_t)(void *, uint8_t *, size_t);
+typedef size_t (*svl_packet_write_fn_t)(void *, const uint8_t *, size_t);
+typedef size_t (*svl_packet_millis_fn_t)(void);
+
+typedef struct svl_packet_driver_t_
+{
+	svl_packet_read_fn_t read;
+	svl_packet_write_fn_t write;
+	svl_packet_millis_fn_t millis;
+	void *read_param;
+	void *write_param;
+} svl_packet_driver_t;
+
+void svl_packet_driver_register(const svl_packet_driver_t *driver);
+
 enum
 {
 	SVL_PACKET_OK = 0x00,
@@ -27,18 +42,9 @@ enum
 	SVL_PACKET_PL = 0x40,          // flag indicating payload
 };
 
-typedef size_t (*svl_packet_read_fn_t)(void *, uint8_t *, size_t);
-typedef size_t (*svl_packet_write_fn_t)(void *, const uint8_t *, size_t);
-typedef size_t (*svl_packet_millis_fn_t)(void);
-
-void svl_packet_link_read_fn(svl_packet_read_fn_t fn, void *param);
-void svl_packet_link_write_fn(svl_packet_write_fn_t fn, void *param);
-void svl_packet_link_millis_fn(svl_packet_millis_fn_t fn);
-
 void svl_packet_send(const svl_packet_t *packet);
 uint8_t svl_packet_wait(svl_packet_t *packet);
 
 uint16_t svl_packet_get_uint16_t(void);
-uint8_t svl_packet_wait_bytes(uint32_t num);
 
 #endif // _SVL_PACKET_H_

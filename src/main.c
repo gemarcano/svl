@@ -375,9 +375,14 @@ static void start_uart_bl(uint32_t baud)
 	am_hal_uart_interrupt_enable(hUART_bl, (AM_HAL_UART_INT_RX));
 
 	// Provide SVL Packet interfaces
-	svl_packet_link_read_fn(svl_uart_read, hUART_bl);
-	svl_packet_link_millis_fn(millis);
-	svl_packet_link_write_fn(svl_uart_write, hUART_bl);
+	const svl_packet_driver_t driver = {
+		.read = svl_uart_read,
+		.write = svl_uart_write,
+		.millis = millis,
+		.read_param = hUART_bl,
+		.write_param = hUART_bl
+	};
+	svl_packet_driver_register(&driver);
 }
 
 // Disable UART interface

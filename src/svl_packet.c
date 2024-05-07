@@ -4,13 +4,6 @@
 
 #include <am_mcu_apollo.h>
 
-static void *read_param = NULL;
-static void *write_param = NULL;
-
-static svl_packet_read_fn_t read_fn = NULL;
-static svl_packet_write_fn_t write_fn = NULL;
-static svl_packet_millis_fn_t millis_fn = NULL;
-
 // CRC-16/UMTS
 // width=16 poly=0x8005 init=0x0000 refin=false refout=false xorout=0x0000
 //   check=0xfee8 residue=0x0000 name="CRC-16/UMTS"
@@ -58,12 +51,14 @@ static uint16_t updateCRC(uint16_t crc, uint8_t num)
 	return (((CRC_Table[idx] >> 8) ^ CRCL) << 8) | (CRC_Table[idx] & 0xFF);
 }
 
+static svl_packet_driver_t driver;
+
 static size_t svl_packet_read(uint8_t *c, size_t amount)
 {
 	size_t retval = 0x00;
-	if (read_fn != NULL)
+	if (driver.read)
 	{
-		retval = read_fn(read_param, c, amount);
+		retval = driver.read(driver.read_param, c, amount);
 	}
 	return retval;
 }
@@ -71,9 +66,9 @@ static size_t svl_packet_read(uint8_t *c, size_t amount)
 static size_t svl_packet_write(const uint8_t *c, size_t amount)
 {
 	size_t retval = 0x00;
-	if (write_fn != NULL)
+	if (driver.write)
 	{
-		retval = write_fn(write_param, c, amount);
+		retval = driver.write(driver.write_param, c, amount);
 	}
 	return retval;
 }
@@ -81,28 +76,16 @@ static size_t svl_packet_write(const uint8_t *c, size_t amount)
 static size_t svl_packet_millis(void)
 {
 	size_t retval = 0x00;
-	if (millis_fn != NULL)
+	if (driver.millis)
 	{
-		retval = millis_fn();
+		retval = driver.millis();
 	}
 	return retval;
 }
 
-void svl_packet_link_read_fn(svl_packet_read_fn_t fn, void *param)
+void svl_packet_driver_register(const svl_packet_driver_t *driver_)
 {
-	read_param = param;
-	read_fn = fn;
-}
-
-void svl_packet_link_write_fn(svl_packet_write_fn_t fn, void *param)
-{
-	write_param = param;
-	write_fn = fn;
-}
-
-void svl_packet_link_millis_fn(svl_packet_millis_fn_t fn)
-{
-	millis_fn = fn;
+	driver = *driver_;
 }
 
 // Doesn't return until all bytes have been at least queued for TX by the
