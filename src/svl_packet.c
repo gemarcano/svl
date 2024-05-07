@@ -4,13 +4,12 @@
 
 #include <am_mcu_apollo.h>
 
-void *read_param = NULL;
-void *write_param = NULL;
-void *avail_param = NULL;
+static void *read_param = NULL;
+static void *write_param = NULL;
 
-svl_packet_read_fn_t read_fn = NULL;
-svl_packet_write_fn_t write_fn = NULL;
-svl_packet_millis_fn_t millis_fn = NULL;
+static svl_packet_read_fn_t read_fn = NULL;
+static svl_packet_write_fn_t write_fn = NULL;
+static svl_packet_millis_fn_t millis_fn = NULL;
 
 // CRC-16/UMTS
 // width=16 poly=0x8005 init=0x0000 refin=false refout=false xorout=0x0000
@@ -106,10 +105,21 @@ void svl_packet_link_millis_fn(svl_packet_millis_fn_t fn)
 	millis_fn = fn;
 }
 
+// Doesn't return until all bytes have been at least queued for TX by the
+// underlying function.
+static size_t svl_packet_write_all(const uint8_t *buffer, size_t size)
+{
+	size_t write = svl_packet_write(buffer, size);
+	while (write < size)
+	{
+		write += svl_packet_write(buffer + write, size - write);
+	}
+	return write;
+}
 
 static size_t svl_packet_write_byte(uint8_t byte)
 {
-	return svl_packet_write(&byte, 1);
+	return svl_packet_write_all(&byte, 1);
 }
 
 void svl_packet_send(const svl_packet_t *packet)
@@ -117,24 +127,25 @@ void svl_packet_send(const svl_packet_t *packet)
 	uint16_t crc = updateCRC(0, packet->cmd); //Add this byte to CRC
 	for (uint32_t x = 0; x < packet->pl_len; x++)
 	{
-		crc = updateCRC(crc, *(packet->pl + x)); //Add this byte to CRC
+		crc = updateCRC(crc, packet->pl[x]); //Add this byte to CRC
 	}
 
-	svl_packet_write_byte(((packet->pl_len + 3) >> 8));   // len high byte (including command and CRC bytes)
-	svl_packet_write_byte(((packet->pl_len + 3) & 0xFF)); // len low byte  (including command and CRC bytes)
+	// Send the len in network byte order. Includes command and CRC bytes.
+	svl_packet_write_byte(((packet->pl_len + 3) >> 8));
+	svl_packet_write_byte(((packet->pl_len + 3) & 0xFF));
 
-	svl_packet_write_byte((packet->cmd)); // command byte
+	// command byte
+	svl_packet_write_byte((packet->cmd));
 
+	// payload
 	if ((packet->pl != NULL) && (packet->pl_len != 0))
 	{
-		for (uint16_t indi = 0; indi < packet->pl_len; indi++)
-		{ // payload
-			svl_packet_write_byte(*(packet->pl + indi));
-		}
+		svl_packet_write_all(packet->pl, packet->pl_len);
 	}
 
-	svl_packet_write_byte(crc >> 8); // CRC H
-	svl_packet_write_byte(crc & 0xFF); // CRC L
+	// Send the CRC in network byte order
+	svl_packet_write_byte(crc >> 8);
+	svl_packet_write_byte(crc & 0xFF);
 }
 
 static size_t svl_packet_read_timeout(uint8_t *buffer, size_t size, uint32_t timeout_ms)
@@ -179,7 +190,7 @@ uint8_t svl_packet_wait(svl_packet_t *packet)
 		return (SVL_PACKET_ERR_MEM | SVL_PACKET_PL);
 	}
 
-	//Wait for entire packet to come in
+	// Get the CMD byte
 	uint8_t cmd = 0;
 	if (!svl_packet_read_timeout(&cmd, 1, 500))
 		return (SVL_PACKET_ERR_TIMEOUT | SVL_PACKET_PL);
@@ -189,7 +200,7 @@ uint8_t svl_packet_wait(svl_packet_t *packet)
 
 	packet->pl_len = (len - 3);
 
-	//Now read the data coming in
+	// Now read the data coming in
 	if ((packet->pl != NULL) && (packet->max_pl_len != 0))
 	{
 		size_t payload_len = svl_packet_read_timeout(packet->pl, packet->pl_len, 500);
@@ -202,6 +213,7 @@ uint8_t svl_packet_wait(svl_packet_t *packet)
 		}
 	}
 
+	// and get the CRC bytes
 	uint8_t crc_buffer[2] = {0};
 	size_t crc_len =
 		svl_packet_read_timeout(crc_buffer, sizeof(crc_buffer), 500);

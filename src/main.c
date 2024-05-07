@@ -527,7 +527,8 @@ static void enter_bootload(void)
 			if (svl_packet_incoming_frame.pl_len == 8)
 			{
 				//FIXME what if address is invalid?
-				uint8_t *address = (uint8_t*)(((uint32_t)svl_packet_incoming_frame.pl[0]) << 24 |
+				uint8_t *address = (uint8_t*)(
+					((uintptr_t)svl_packet_incoming_frame.pl[0]) << 24 |
 					svl_packet_incoming_frame.pl[1] << 16 |
 					svl_packet_incoming_frame.pl[2] << 8 |
 					svl_packet_incoming_frame.pl[3] << 0);
