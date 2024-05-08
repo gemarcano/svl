@@ -3,20 +3,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
-#include <stdatomic.h>
 
-#define AP3_STIMER_FREQ_HZ (3000000)
-#define AP3_STIMER_FREQ_KHZ (AP3_STIMER_FREQ_HZ / 1000)
-#define AP3_STIMER_FREQ_MHZ (AP3_STIMER_FREQ_HZ / 1000000)
-
-volatile atomic_uint_least32_t ap3_stimer_overflows = 0x00;
-
+extern volatile uint32_t jiffies;
 size_t millis(void)
 {
-	uint64_t ticks = ap3_stimer_overflows;
-	ticks <<= 32;
-	ticks |= (am_hal_stimer_counter_get() & 0xFFFFFFFF);
-	return (size_t)(ticks / AP3_STIMER_FREQ_KHZ);
+	return jiffies;
 }
 
 //*****************************************************************************

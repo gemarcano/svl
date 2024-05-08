@@ -207,10 +207,11 @@ static void setup(void)
 	am_hal_cachectrl_enable();
 
 	// Configure the stimer
-	am_hal_stimer_int_enable(AM_HAL_STIMER_INT_OVERFLOW);
-	NVIC_EnableIRQ(STIMER_IRQn);
+	am_hal_stimer_int_enable(AM_HAL_STIMER_INT_COMPAREA);
+	NVIC_EnableIRQ(STIMER_CMPR0_IRQn);
 	am_hal_stimer_config(AM_HAL_STIMER_CFG_CLEAR | AM_HAL_STIMER_CFG_FREEZE);
-	am_hal_stimer_config(AM_HAL_STIMER_HFRC_3MHZ);
+	am_hal_stimer_compare_delta_set(0, 3000);
+	am_hal_stimer_config(AM_HAL_STIMER_HFRC_3MHZ | AM_HAL_STIMER_CFG_COMPARE_A_ENABLE);
 
 	// Enable interrupts.
 	am_hal_interrupt_master_enable();
@@ -223,8 +224,8 @@ static void unsetup(void)
 	disable_burst_mode();
 
 	// Deconfigure the stimer
-	am_hal_stimer_int_disable(AM_HAL_STIMER_INT_OVERFLOW);
-	NVIC_DisableIRQ(STIMER_IRQn);
+	am_hal_stimer_int_disable(AM_HAL_STIMER_INT_COMPAREA);
+	NVIC_DisableIRQ(STIMER_CMPR0_IRQn);
 	am_hal_stimer_config(AM_HAL_STIMER_CFG_CLEAR | AM_HAL_STIMER_CFG_FREEZE);
 	am_hal_stimer_config(AM_HAL_STIMER_NO_CLK);
 
@@ -590,25 +591,6 @@ static void app_start(void)
 //*****************************************************************************
 int main(void)
 {
-	// We need to grab pin 47 and read it ASAP!
-	const am_hal_gpio_pincfg_t input_gpio =
-	{
-		.uFuncSel  = 3,
-		.eGPOutcfg = AM_HAL_GPIO_PIN_OUTCFG_DISABLE,
-		.eGPInput  = AM_HAL_GPIO_PIN_INPUT_ENABLE,
-		.eGPRdZero = AM_HAL_GPIO_PIN_RDZERO_READPIN,
-		.eIntDir   = AM_HAL_GPIO_PIN_INTDIR_NONE
-	};
-	am_hal_gpio_pinconfig(47, input_gpio);
-	uint32_t boot_select;
-    am_hal_gpio_state_read(47, AM_HAL_GPIO_INPUT_READ, &boot_select);
-
-	// FIXME enable this for Artemia!
-	/*if (!boot_select)
-	{
-		app_start();
-	}*/
-
 	setup();
 
 	// Detects the baud rate. Returns true if a valid baud rate was found
@@ -657,28 +639,19 @@ int main(void)
 // UART interrupt handlers
 //
 //*****************************************************************************
-__attribute__ ((used))
-void am_uart_isr(void)
-{
-	// Service the FIFOs as necessary, and clear the interrupts.
-#if BL_UART_INST == 0
-	uint32_t ui32Status, ui32Idle;
-	am_hal_uart_interrupt_status_get(hUART_bl, &ui32Status, true);
-	am_hal_uart_interrupt_clear(hUART_bl, ui32Status);
-	am_hal_uart_interrupt_service(hUART_bl, ui32Status, &ui32Idle);
-#endif // BL_UART_INST == 0
-}
 
 __attribute__ ((used))
+#if BL_UART_INST == 0
+void am_uart_isr(void)
+#else
 void am_uart1_isr(void)
+#endif // BL_UART_INST == 0
 {
 	// Service the FIFOs as necessary, and clear the interrupts.
-#if BL_UART_INST == 1
 	uint32_t ui32Status, ui32Idle;
 	am_hal_uart_interrupt_status_get(hUART_bl, &ui32Status, true);
 	am_hal_uart_interrupt_clear(hUART_bl, ui32Status);
 	am_hal_uart_interrupt_service(hUART_bl, ui32Status, &ui32Idle);
-#endif // BL_UART_INST == 0
 }
 
 //*****************************************************************************
@@ -701,12 +674,11 @@ void am_gpio_isr(void)
 // STimer interrupt handler
 //
 //*****************************************************************************
+volatile uint32_t jiffies;
 __attribute__ ((used))
-void am_stimer_isr(void)
+void am_stimer_cmpr0_isr(void)
 {
-	am_hal_stimer_int_clear(AM_HAL_STIMER_INT_OVERFLOW);
-	ap3_stimer_overflows += 1;
-	// At the fastest rate (3MHz) the 64 bits of the stimer
-	// along with this overflow counter can keep track of
-	// the time for ~ 195,000 years without wrapping to 0
+	am_hal_stimer_int_clear(AM_HAL_STIMER_INT_COMPAREA);
+	am_hal_stimer_compare_delta_set(0, 3000);
+	jiffies += 1;
 }
