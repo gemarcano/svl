@@ -6,14 +6,6 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 
-/** Returns the number of milliseconds since STIMER was initialized.
- *
- * This assumes STIMER is initialized and configured to run at 3MHz.
- *
- * @returns The number of milliseconds since STIMER was started.
- */
-size_t millis(void);
-
 /** Enable Apollo3 burst mode, 96MHz system clock.
  */
 bool enable_burst_mode(void);

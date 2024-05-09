@@ -189,6 +189,9 @@ static uint8_t tx_buffer[BL_UART_BUF_LEN] = {0};
 static volatile uint8_t bl_baud_ticks_index = 0x00;
 static volatile uint32_t bl_baud_ticks[BL_BAUD_SAMPLES] = {0};
 
+// The number of milliseconds since the timer was initialized
+volatile uint32_t jiffies;
+
 //*****************************************************************************
 //
 // Additional functions
@@ -231,6 +234,17 @@ static void unsetup(void)
 
 	// Disable interrupts.
 	am_hal_interrupt_master_disable();
+}
+
+/** Returns the number of milliseconds since STIMER was initialized.
+ *
+ * This assumes STIMER is initialized and configured to run at 3MHz.
+ *
+ * @returns The number of milliseconds since STIMER was started.
+ */
+static size_t millis(void)
+{
+	return jiffies;
 }
 
 /** Peform baud-rate auto-detection.

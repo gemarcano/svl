@@ -4,12 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-extern volatile uint32_t jiffies;
-size_t millis(void)
-{
-	return jiffies;
-}
-
 //*****************************************************************************
 //
 // Burst mode
