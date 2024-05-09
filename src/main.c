@@ -688,7 +688,6 @@ void am_gpio_isr(void)
 // STimer interrupt handler
 //
 //*****************************************************************************
-volatile uint32_t jiffies;
 __attribute__ ((used))
 void am_stimer_cmpr0_isr(void)
 {
