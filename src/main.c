@@ -73,7 +73,7 @@ Modified: April 24 2024
 //*****************************************************************************
 // must be larger than maximum frame transmission length for guaranteed
 // performance
-#define BL_UART_BUF_LEN   (2048 + 512)
+#define BL_UART_BUF_LEN   (8192 + 512)
 // which UART peripheral to use for BL data
 #define BL_UART_INST      0
 // RX pad for BL_UART_INST
@@ -84,7 +84,7 @@ Modified: April 24 2024
 // (Linker script vectors must match this address)
 #define USERCODE_OFFSET   (0xC000 + 0x4000)
 // maximum number of 4-byte words that can be transmitted in one frame packet
-#define FRAME_BUFFER_SIZE 512
+#define FRAME_BUFFER_SIZE 8192
 
 //*****************************************************************************
 //
