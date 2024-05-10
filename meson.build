@@ -88,6 +88,8 @@ bin = custom_target(
 
 run_target('flash',
   command : ['python3', meson.source_root() / 'asb.py',
-    get_option('tty'), '-f',  bin, '-b', '921600', '-v'],
+    '--load-address-blob', '0x20000', '--magic-num', '0xCB', '--version',
+    '0x0', '--load-address-wired', '0xC000', '-i', '6', '--options', '0x1',
+    '-o', './temp', '-port', get_option('tty'), '--bin', bin, '-clean'],
   depends : bin,
 )

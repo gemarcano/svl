@@ -1,7 +1,10 @@
 # Sparkfun Variable Loader
 
 This is a meson-ified repository of the Sparkfun Variable Loader bootloader for
-the Artemis module.
+the Artemis module. It has also been refactored and cleaned up, increasing
+transfer rates and reducing code size. Thanks to the use of a patched
+AmbiqSuiteSDK-3.0.0, it also supports being built with LTO to further reduce
+size.
 
 ## Dependencies
 
@@ -13,27 +16,52 @@ special meson cross-file property `sys_root` is used for this, and the
 variable to be overriden. To override a cross-file constant, you only need to
 provide a second cross-file with that variable overriden. For example:
 
-Contents of `my_cross`:
+Contents of `crossfile`:
 ```
 [constants]
 prefix = '/home/gabriel/.local/redboard'
 ```
 
-# Compiling and installing
+# Configuring
 
 ```
 mkdir build
 cd build
 # The `artemis` cross-file is assumed to be installed per recommendations from
-# the `asimple` repository
-meson setup --prefix [prefix-where-sdk-installed] --cross-file artemis --cross-file ../my_cross --buildtype release
+# the `AmbiqSuiteSDK` repository
+meson setup --prefix [prefix-where-sdk-installed] --cross-file artemis --cross-file ../crossfile --buildtype release
+```
+
+One of two GPIOs can be used to determine whether or not to skip the bootloader
+completely, which happens when the pin is held low. GPIO 47 is the default, and
+it is the same pin used by the Ambiq Secondary Secure Bootloader (SBBL) to also
+skip itself if the pin is low. However, this pin is not pinned out on the
+Sparkfun Redboard Artemis ATP, so an alternative of GPIO 42 is also offered.
+These GPIOs can be selected via `meson configure`. For example:
+
+```
+meson configure -Dboot_gpio=42
+```
+
+# Compiling
+
+```
 meson compile
 ```
 
-FIXME instructions on how to flash using asb.py
+# Installing
+
+Make sure to set the `tty` meson configuration to the path of the serial device
+the bootloader is connected to. For example:
 
 ```
-python asb.py --load-address-blob 0x20000 --magic-num 0xCB --version 0x0 --load-address-wired 0xC000 -i 6 --options 0x1 -v -o ./temp -port /dev/ttyUSB0 --bin build/svl.bin
+meson configure -Dtty=/dev/ttyUSB0
+```
+
+And finally,
+
+```
+make compile flash
 ```
 
 # License
