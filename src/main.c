@@ -64,7 +64,7 @@ Modified: April 24 2024
 // Defines
 //
 //*****************************************************************************
-#define SVL_VERSION_NUMBER 0x05
+#define SVL_VERSION_NUMBER 0x06
 
 //*****************************************************************************
 //
@@ -76,8 +76,6 @@ Modified: April 24 2024
 #define BL_UART_BUF_LEN   (2048 + 512)
 // which UART peripheral to use for BL data
 #define BL_UART_INST      0
-// Pad to determine whether to skip BL or not
-#define BL_BOOT_PAD       47
 // RX pad for BL_UART_INST
 #define BL_RX_PAD         49
 // TX pad for BL_UART_INST
