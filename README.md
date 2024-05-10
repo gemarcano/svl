@@ -64,6 +64,18 @@ And finally,
 make compile flash
 ```
 
+# Flashing applications
+
+The SVL will flash applications to address 0x10000 in flash memory. The ARM
+vector table must be first in memory in the application, as the SVL will jump
+to the address at 0x10004, normally the application's reset vector.
+
+To flash applications, use the `svl.py` script, or a reimplementation of that
+script in rust in `github.com/gemarcano/artemis_flash_utils-rs`.
+
+An example project template that supports being loaded by the SVL can be found
+here: `https://github.com/gemarcano/redboard_template`
+
 # License
 
 See the license file for details. In summary, most of this project is licensed
