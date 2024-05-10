@@ -434,7 +434,7 @@ def upload(args, verboseprint):
             if(loadSuccess == True):
                 print("Tries =", loadTries)
                 print('Upload complete!')
-                exit()
+                return
             else:
                 print("Fail")
             
@@ -442,7 +442,6 @@ def upload(args, verboseprint):
             
     print("Tries =", loadTries)
     print("Upload failed")
-    exit()
 
 
 #******************************************************************************
@@ -736,7 +735,7 @@ def parse_arguments():
     parser.add_argument('--bin', dest='appFile', type=argparse.FileType('rb'),
                         help='bin2blob: binary file (blah.bin)')
 
-    parser.add_argument('-clean', dest='clean', default=0, type=int,
+    parser.add_argument('-clean', dest='clean', action='store_true',
                         help = 'All: whether or not to remove intermediate files')
 
     parser.add_argument('--child0', dest = 'child0', type=auto_int, default=hex(0xFFFFFFFF),
@@ -891,8 +890,11 @@ def main():
 
     upload(args, verboseprint)
 
-    if(args.clean == 1):
-        print('Cleaning up intermediate files') # todo: why isnt this showing w/ -clean option?
+    if(args.clean):
+        print('Cleaning up intermediate files')
+        os.remove(args.output + '_OTA_blob.bin')
+        os.remove(args.output + '_Wired_OTA_blob.bin')
+
 
 
 if __name__ == '__main__':
