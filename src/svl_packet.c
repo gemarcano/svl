@@ -118,7 +118,8 @@ void svl_packet_send(const svl_packet_t *packet)
 	svl_packet_write_all(front, sizeof(front));
 
 	// payload
-	if ((packet->pl != NULL) && (packet->pl_len != 0))
+	// pl _can_ be null if pointing to address 0x0, which is valid!
+	if (packet->pl_len != 0)
 	{
 		svl_packet_write_all(packet->pl, packet->pl_len);
 	}
