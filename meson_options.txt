@@ -1,1 +1,2 @@
 option('tty', type : 'string', value : '/dev/ttyUSB0', description : 'Path to the TTY device of the RedBoard')
+option('boot_gpio', type: 'combo', choices: ['42', '47'], value: '47', description: 'Which GPIO to check to determine whether to skip bootloader or not')

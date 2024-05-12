@@ -10,6 +10,7 @@ project('svl', 'c',
 
 c_args = [
   '-ffunction-sections',
+  '-DBOOT_GPIO' + get_option('boot_gpio'),
 ]
 
 link_args = [
