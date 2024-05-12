@@ -23,8 +23,7 @@ typedef struct svl_packet_driver_t_
 	svl_packet_read_fn_t read;
 	svl_packet_write_fn_t write;
 	svl_packet_millis_fn_t millis;
-	void *read_param;
-	void *write_param;
+	void *param;
 } svl_packet_driver_t;
 
 void svl_packet_driver_register(const svl_packet_driver_t *driver);
@@ -43,6 +42,7 @@ enum
 };
 
 void svl_packet_send(const svl_packet_t *packet);
+void svl_packet_send_command(uint8_t command);
 uint8_t svl_packet_wait(svl_packet_t *packet);
 
 uint16_t svl_packet_get_uint16_t(void);

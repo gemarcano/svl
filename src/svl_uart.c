@@ -45,12 +45,3 @@ size_t svl_uart_write(void *pHandle, const uint8_t* buf, size_t len){
 	return ui32BytesWritten;
 }
 
-//*****************************************************************************
-//
-// UART send string
-//
-//*****************************************************************************
-size_t svl_uart_print(void *pHandle, const char* str){
-	uint32_t ui32StrLen = strlen(str);
-	return svl_uart_write(pHandle, (const uint8_t*)str, ui32StrLen);
-}

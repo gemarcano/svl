@@ -58,7 +58,7 @@ static size_t svl_packet_read(uint8_t *c, size_t amount)
 	size_t retval = 0x00;
 	if (driver.read)
 	{
-		retval = driver.read(driver.read_param, c, amount);
+		retval = driver.read(driver.param, c, amount);
 	}
 	return retval;
 }
@@ -68,7 +68,7 @@ static size_t svl_packet_write(const uint8_t *c, size_t amount)
 	size_t retval = 0x00;
 	if (driver.write)
 	{
-		retval = driver.write(driver.write_param, c, amount);
+		retval = driver.write(driver.param, c, amount);
 	}
 	return retval;
 }
@@ -100,11 +100,6 @@ static size_t svl_packet_write_all(const uint8_t *buffer, size_t size)
 	return write;
 }
 
-static size_t svl_packet_write_byte(uint8_t byte)
-{
-	return svl_packet_write_all(&byte, 1);
-}
-
 void svl_packet_send(const svl_packet_t *packet)
 {
 	uint16_t crc = updateCRC(0, packet->cmd); //Add this byte to CRC
@@ -114,11 +109,13 @@ void svl_packet_send(const svl_packet_t *packet)
 	}
 
 	// Send the len in network byte order. Includes command and CRC bytes.
-	svl_packet_write_byte(((packet->pl_len + 3) >> 8));
-	svl_packet_write_byte(((packet->pl_len + 3) & 0xFF));
-
 	// command byte
-	svl_packet_write_byte((packet->cmd));
+	const uint8_t front[3] = {
+		(packet->pl_len + 3) >> 8,
+		(packet->pl_len + 3) & 0xFF,
+		packet->cmd
+	};
+	svl_packet_write_all(front, sizeof(front));
 
 	// payload
 	if ((packet->pl != NULL) && (packet->pl_len != 0))
@@ -127,8 +124,20 @@ void svl_packet_send(const svl_packet_t *packet)
 	}
 
 	// Send the CRC in network byte order
-	svl_packet_write_byte(crc >> 8);
-	svl_packet_write_byte(crc & 0xFF);
+	const uint8_t back[2] = {
+		crc >> 8,
+		crc & 0xFF
+	};
+	svl_packet_write_all(back, sizeof(back));
+}
+
+void svl_packet_send_command(uint8_t command)
+{
+	uint16_t crc = updateCRC(0, command); //Add this byte to CRC
+	uint8_t output[5] = {
+		0, 3, command, crc >> 8, crc & 0xFF
+	};
+	svl_packet_write_all(output, sizeof(output));
 }
 
 static size_t svl_packet_read_timeout(uint8_t *buffer, size_t size, uint32_t timeout_ms)

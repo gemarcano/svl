@@ -84,7 +84,7 @@ Modified: April 24 2024
 // (Linker script vectors must match this address)
 #define USERCODE_OFFSET   (0xC000 + 0x4000)
 // maximum number of 4-byte words that can be transmitted in one frame packet
-#define FRAME_BUFFER_SIZE 8192
+#define MAX_PAYLOAD_SIZE 8192
 
 //*****************************************************************************
 //
@@ -118,7 +118,7 @@ enum command
 	 *
 	 * This is sent by the svl application to the device.
 	 *
-	 * The payload is at most FRAME_BUFFER_SIZE bytes of data to be flashed
+	 * The payload is at most MAX_PAYLOAD_SIZE bytes of data to be flashed
 	 * onto the device.
 	 */
 	CMD_FRAME,
@@ -298,12 +298,12 @@ static bool detect_baud_rate(uint32_t *baud)
 	if (bl_baud_ticks_index == BL_BAUD_SAMPLES)
 	{
 		// compute differences between samples
-		float mean = 0.0;
+		float mean = 0.0f;
 		for (uint8_t indi = 0; indi < (BL_BAUD_SAMPLES - 1); indi++)
 		{
 			uint32_t value = bl_baud_ticks[indi + 1] - bl_baud_ticks[indi];
 			bl_baud_ticks[indi] = value;
-			mean += value;
+			mean += (float)value;
 		}
 		mean /= (BL_BAUD_SAMPLES - 1);
 
@@ -392,8 +392,7 @@ static void start_uart_bl(uint32_t baud)
 		.read = svl_uart_read,
 		.write = svl_uart_write,
 		.millis = millis,
-		.read_param = hUART_bl,
-		.write_param = hUART_bl
+		.param = hUART_bl,
 	};
 	svl_packet_driver_register(&driver);
 }
@@ -410,15 +409,16 @@ static void stop_uart_bl()
 }
 
 // Handle a frame packet
-static uint8_t handle_frame_packet(
-	svl_packet_t *packet,
+static uint8_t flash_page(
+	uint32_t *data,
+	size_t length,
 	uint32_t *p_frame_address,
 	uint16_t *p_last_page_erased)
 {
-	const uint32_t num_words = (packet->pl_len / 4);
+	const uint32_t num_words = (length / 4);
 
 	// Check payload length is multiple of words
-	if ((packet->pl_len % 4))
+	if ((length % 4))
 	{
 		return 1;
 	}
@@ -444,7 +444,7 @@ static uint8_t handle_frame_packet(
 	// Record the array
 	i32ReturnCode = am_hal_flash_program_main(
 		AM_HAL_FLASH_PROGRAM_KEY,
-		(uint32_t *)packet->pl,
+		data,
 		(uint32_t *)(*(p_frame_address) + USERCODE_OFFSET),
 		num_words);
 
@@ -464,30 +464,6 @@ static void enter_bootload(void)
 {
 	enable_burst_mode();
 
-	// Storage for the incoming payload data
-	static uint32_t frame_buffer[FRAME_BUFFER_SIZE];
-
-	svl_packet_t svl_packet_incoming_frame = {
-		.cmd = CMD_FRAME,
-		.pl = (uint8_t *)frame_buffer,
-		.pl_len = sizeof(frame_buffer) / sizeof(uint8_t),
-		.max_pl_len = sizeof(frame_buffer) / sizeof(uint8_t)
-	};
-
-	const svl_packet_t svl_packet_retry = {
-		.cmd = CMD_RETRY,
-		.pl = NULL,
-		.pl_len = 0,
-		.max_pl_len = 0
-	};
-
-	const svl_packet_t svl_packet_next = {
-		.cmd = CMD_NEXT,
-		.pl = NULL,
-		.pl_len = 0,
-		.max_pl_len = 0
-	};
-
 	bool done = false;
 	// Current offset/address of payload being processed
 	uint32_t frame_address = 0;
@@ -502,17 +478,25 @@ static void enter_bootload(void)
 		// next command
 		if (retransmit)
 		{
-			svl_packet_send(&svl_packet_retry); // Ask to retransmit
+			svl_packet_send_command(CMD_RETRY); // Ask to retransmit
 			am_hal_uart_tx_flush(hUART_bl);
 			retransmit = false;
 		}
 		else
 		{
-			svl_packet_send(&svl_packet_next); // Ask for the next frame packet
+			svl_packet_send_command(CMD_NEXT); // Ask for the next frame packet
 			am_hal_uart_tx_flush(hUART_bl);
 		}
 
-		uint8_t stat = svl_packet_wait(&svl_packet_incoming_frame);
+		// Storage for the incoming payload data
+		static uint32_t buffer[MAX_PAYLOAD_SIZE/sizeof(uint32_t)];
+		svl_packet_t incoming = {
+			.cmd = CMD_FRAME,
+			.pl = (uint8_t*)buffer,
+			.pl_len = sizeof(buffer) / sizeof(uint8_t),
+			.max_pl_len = sizeof(buffer) / sizeof(uint8_t)
+		};
+		uint8_t stat = svl_packet_wait(&incoming);
 		if (stat != 0)
 		{
 			// Some error occurred receiving a packet,
@@ -522,18 +506,16 @@ static void enter_bootload(void)
 
 			//Flush the buffers to remove any inbound or outbound garbage
 			am_hal_uart_tx_flush(hUART_bl);
-			uint8_t tmp[BL_UART_BUF_LEN];
-			while(svl_uart_read(hUART_bl, tmp, sizeof(tmp)) == sizeof(tmp))
-			{
-				// Just wait until we're no longer receiving any data.
-			}
+			svl_uart_discard(hUART_bl);
 			continue;
 		}
 
-		switch (svl_packet_incoming_frame.cmd)
+		switch (incoming.cmd)
 		{
 		case CMD_FRAME:
-			if (handle_frame_packet(&svl_packet_incoming_frame, &frame_address, &last_page_erased) != 0)
+			// incoming.pl should be buffer, and buffer is clearly 4 byte aligned
+			static_assert(alignof(typeof(buffer)) == 4, "bad buffer alignment");
+			if (flash_page(buffer, incoming.pl_len, &frame_address, &last_page_erased) != 0)
 			{
 				retransmit = true;
 			}
@@ -542,18 +524,18 @@ static void enter_bootload(void)
 			done = true;
 			break;
 		case CMD_READ:
-			if (svl_packet_incoming_frame.pl_len == 8)
+			if (incoming.pl_len == 6)
 			{
+				const uint8_t *pl = incoming.pl;
 				//FIXME what if address is invalid?
 				uint8_t *address = (uint8_t*)(
-					((uintptr_t)svl_packet_incoming_frame.pl[0]) << 24 |
-					svl_packet_incoming_frame.pl[1] << 16 |
-					svl_packet_incoming_frame.pl[2] << 8 |
-					svl_packet_incoming_frame.pl[3] << 0);
-				uint32_t size = ((svl_packet_incoming_frame.pl[4]) << 24 |
-					svl_packet_incoming_frame.pl[5] << 16 |
-					svl_packet_incoming_frame.pl[6] << 8 |
-					svl_packet_incoming_frame.pl[7] << 0);
+					((uintptr_t)pl[0]) << 24 |
+					((uintptr_t)pl[1]) << 16 |
+					((uintptr_t)pl[2]) << 8 |
+					((uintptr_t)pl[3]) << 0);
+				uint16_t size = (uint16_t)(
+					pl[4] << 8 |
+					pl[5] << 0);
 				const svl_packet_t svl_packet_response = {
 					.cmd = CMD_READ_RESP,
 					.pl = address,
@@ -616,10 +598,12 @@ int main(void)
 	start_uart_bl(bl_baud); // This will create a 23 us wide low 'blip' on the TX line (until possibly fixed)
 	am_util_delay_us(200);  // At the minimum baud rate of 115200 one byte (10 bits with start/stop) takes 10/115200 or 87 us. 87+23 = 100, double to be safe
 
-	const uint8_t packet_ver_buf[1] = {SVL_VERSION_NUMBER};
+	// This can be const, but then GCC complains that .pl in svl_packet_t
+	// initialization discards 'const' qualifier from pointer target type
+	uint8_t packet_ver_buf[1] = {SVL_VERSION_NUMBER};
 	const svl_packet_t svl_packet_version = {
 		.cmd = CMD_VERSION,
-		.pl = (uint8_t*)packet_ver_buf,
+		.pl = packet_ver_buf,
 		.pl_len = sizeof(packet_ver_buf),
 		.max_pl_len = sizeof(packet_ver_buf)
 	};
