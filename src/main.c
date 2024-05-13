@@ -234,17 +234,6 @@ static void unsetup(void)
 	am_hal_interrupt_master_disable();
 }
 
-/** Returns the number of milliseconds since STIMER was initialized.
- *
- * This assumes STIMER is initialized and configured to run at 3MHz.
- *
- * @returns The number of milliseconds since STIMER was started.
- */
-static size_t millis(void)
-{
-	return jiffies;
-}
-
 /** Peform baud-rate auto-detection.
  *
  * This works by listening for a 'U' character (0b01010101), and timestamping
@@ -280,10 +269,10 @@ static bool detect_baud_rate(uint32_t *baud)
 	am_hal_gpio_interrupt_enable(AM_HAL_GPIO_BIT(BL_RX_PAD));
 
 	const uint32_t bl_entry_timeout_ms = 200;
-	uint32_t bl_entry_timeout_start = millis();
+	uint32_t bl_entry_timeout_start = jiffies;
 	NVIC_EnableIRQ(GPIO_IRQn);
 	while ((bl_baud_ticks_index != BL_BAUD_SAMPLES) &&
-			((millis() - bl_entry_timeout_start) < bl_entry_timeout_ms))
+			((jiffies - bl_entry_timeout_start) < bl_entry_timeout_ms))
 	{
 		// Just wait until we time out or we get enough samples
 	}
@@ -386,15 +375,6 @@ static void start_uart_bl(uint32_t baud)
 	// Enable interrupts.
 	NVIC_EnableIRQ((IRQn_Type)(UART0_IRQn + BL_UART_INST));
 	am_hal_uart_interrupt_enable(hUART_bl, (AM_HAL_UART_INT_RX));
-
-	// Provide SVL Packet interfaces
-	const svl_packet_driver_t driver = {
-		.read = svl_uart_read,
-		.write = svl_uart_write,
-		.millis = millis,
-		.param = hUART_bl,
-	};
-	svl_packet_driver_register(&driver);
 }
 
 // Disable UART interface
@@ -478,14 +458,12 @@ static void enter_bootload(void)
 		// next command
 		if (retransmit)
 		{
-			svl_packet_send_command(CMD_RETRY); // Ask to retransmit
-			am_hal_uart_tx_flush(hUART_bl);
+			svl_packet_send_command(hUART_bl, CMD_RETRY); // Ask to retransmit
 			retransmit = false;
 		}
 		else
 		{
-			svl_packet_send_command(CMD_NEXT); // Ask for the next frame packet
-			am_hal_uart_tx_flush(hUART_bl);
+			svl_packet_send_command(hUART_bl, CMD_NEXT); // Ask for the next frame packet
 		}
 
 		// Storage for the incoming payload data
@@ -494,9 +472,8 @@ static void enter_bootload(void)
 			.cmd = CMD_FRAME,
 			.pl = (uint8_t*)buffer,
 			.pl_len = sizeof(buffer) / sizeof(uint8_t),
-			.max_pl_len = sizeof(buffer) / sizeof(uint8_t)
 		};
-		uint8_t stat = svl_packet_wait(&incoming);
+		uint8_t stat = svl_packet_wait(hUART_bl, &incoming);
 		if (stat != 0)
 		{
 			// Some error occurred receiving a packet,
@@ -540,10 +517,8 @@ static void enter_bootload(void)
 					.cmd = CMD_READ_RESP,
 					.pl = address,
 					.pl_len = size,
-					.max_pl_len = size
 				};
-				svl_packet_send(&svl_packet_response);
-				am_hal_uart_tx_flush(hUART_bl);
+				svl_packet_send(hUART_bl, CMD_READ_RESP, address, size);
 			}
 			else
 			{
@@ -598,27 +573,11 @@ int main(void)
 	start_uart_bl(bl_baud); // This will create a 23 us wide low 'blip' on the TX line (until possibly fixed)
 	am_util_delay_us(200);  // At the minimum baud rate of 115200 one byte (10 bits with start/stop) takes 10/115200 or 87 us. 87+23 = 100, double to be safe
 
-	// This can be const, but then GCC complains that .pl in svl_packet_t
-	// initialization discards 'const' qualifier from pointer target type
-	uint8_t packet_ver_buf[1] = {SVL_VERSION_NUMBER};
-	const svl_packet_t svl_packet_version = {
-		.cmd = CMD_VERSION,
-		.pl = packet_ver_buf,
-		.pl_len = sizeof(packet_ver_buf),
-		.max_pl_len = sizeof(packet_ver_buf)
-	};
+	svl_packet_send_command_byte(hUART_bl, CMD_VERSION, SVL_VERSION_NUMBER); // when baud rate is determined send the version packet
 
-	svl_packet_send(&svl_packet_version); // when baud rate is determined send the version packet
-	am_hal_uart_tx_flush(hUART_bl);
+	svl_packet_t svl_packet_blmode = {0};
 
-	svl_packet_t svl_packet_blmode = {
-		.cmd = CMD_BLMODE,
-		.pl = NULL,
-		.pl_len = 0,
-		.max_pl_len = 0
-	};
-
-	if (svl_packet_wait(&svl_packet_blmode) != 0)
+	if (svl_packet_wait(hUART_bl, &svl_packet_blmode) != 0)
 	{ // wait for the bootloader to confirm bootloader mode entry
 		stop_uart_bl();
 		app_start(); // break to app

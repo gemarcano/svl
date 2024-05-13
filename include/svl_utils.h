@@ -1,10 +1,8 @@
 #ifndef _SVL_UTILS_H_
 #define _SVL_UTILS_H_
 
-#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdatomic.h>
 
 /** Enable Apollo3 burst mode, 96MHz system clock.
  */
@@ -14,7 +12,7 @@ bool enable_burst_mode(void);
  */
 bool disable_burst_mode(void);
 
-// The number of times the STIMER has overflowed
-extern volatile atomic_uint_least32_t ap3_stimer_overflows;
+// The number of milliseconds since the timer was initialized
+extern volatile uint32_t jiffies;
 
 #endif // _SVL_UTILS_H_
