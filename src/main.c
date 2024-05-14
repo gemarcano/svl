@@ -513,11 +513,6 @@ static void enter_bootload(void)
 				uint16_t size = (uint16_t)(
 					pl[4] << 8 |
 					pl[5] << 0);
-				const svl_packet_t svl_packet_response = {
-					.cmd = CMD_READ_RESP,
-					.pl = address,
-					.pl_len = size,
-				};
 				svl_packet_send(hUART_bl, CMD_READ_RESP, address, size);
 			}
 			else
