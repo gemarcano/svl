@@ -64,7 +64,7 @@ Modified: April 24 2024
 // Defines
 //
 //*****************************************************************************
-#define SVL_VERSION_NUMBER 0x06
+#define SVL_VERSION_NUMBER 0x16
 
 //*****************************************************************************
 //
@@ -405,7 +405,7 @@ static uint8_t flash_page(
 
 	int32_t i32ReturnCode = 0;
 	uint32_t offset_address = (*(p_frame_address) + USERCODE_OFFSET);
-	if ((*p_last_page_erased) < AM_HAL_FLASH_ADDR2PAGE(offset_address))
+	if ((*p_last_page_erased) < AM_HAL_FLASH_ADDR2ABSPAGE(offset_address))
 	{
 		// Erase the 8k page for this address
 		i32ReturnCode = am_hal_flash_page_erase(
@@ -413,7 +413,7 @@ static uint8_t flash_page(
 			AM_HAL_FLASH_ADDR2INST(offset_address),
 			AM_HAL_FLASH_ADDR2PAGE(offset_address));
 
-		*(p_last_page_erased) = AM_HAL_FLASH_ADDR2PAGE(offset_address);
+		*(p_last_page_erased) = AM_HAL_FLASH_ADDR2ABSPAGE(offset_address);
 
 		if (i32ReturnCode)
 		{
@@ -425,7 +425,7 @@ static uint8_t flash_page(
 	i32ReturnCode = am_hal_flash_program_main(
 		AM_HAL_FLASH_PROGRAM_KEY,
 		data,
-		(uint32_t *)(*(p_frame_address) + USERCODE_OFFSET),
+		(uint32_t *)offset_address,
 		num_words);
 
 	if (i32ReturnCode)
