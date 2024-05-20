@@ -37,6 +37,9 @@ completely, which happens when the pin is held low. GPIO 47 is the default, and
 it is the same pin used by the Ambiq Secondary Secure Bootloader (SBBL) to also
 skip itself if the pin is low. However, this pin is not pinned out on the
 Sparkfun Redboard Artemis ATP, so an alternative of GPIO 42 is also offered.
+The final option is "none", which skips the GPIO check completely and always
+runs the bootloader.
+
 These GPIOs can be selected via `meson configure`. For example:
 
 ```

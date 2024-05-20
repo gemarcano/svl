@@ -34,7 +34,11 @@ app_jump:
 #define GPIO_READEN (0x00020000)
 #define PADREG_OFFSET (0x28)
 #else
+#ifdef BOOT_GPIOnone
+// Do nothing :)
+#else
 #error "Unknown GPIO configured"
+#endif
 #endif
 #endif
 
@@ -44,6 +48,7 @@ app_jump:
 .func Reset_Handler
 .type Reset_Handler, function
 Reset_Handler:
+#ifndef BOOT_GPIOnone
 	#Check GPIO47, we need to enable input
 	ldr r0, =GPIO_BASE
 	ldr r1, [r0, PADREG_OFFSET]
@@ -63,13 +68,15 @@ Reset_Handler:
 	# _if gpio is set, go to bootloader, else app_jump
 	tst r1, 1<<(GPIO-32)
 	beq 1f
+#endif//BOOT_GPIOnone
     ldr sp, =_sstack
     blx Reset_Handler2
 0:
     bkpt
     b 0b
+#ifndef BOOT_GPIOnone
 1:
 	ldr r0, =USERCODE_OFFSET
 	b app_jump
+#endif//BOOT_GPIOnone
 .endfunc
-
