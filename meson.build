@@ -73,7 +73,7 @@ exe = executable(meson.project_name(),
   dependencies: [ambiq_lib, m_dep, asimple_lib],
   include_directories: includes,
   c_args: c_args,
-  link_args: link_args + ['-T' + meson.source_root() / 'linker.ld']
+  link_args: link_args + ['-T' + meson.project_source_root() / 'linker.ld']
 )
 
 # Custom flash target, to make it easier to program the RedBoard, requires
@@ -88,7 +88,7 @@ bin = custom_target(
 )
 
 run_target('flash',
-  command : ['python3', meson.source_root() / 'asb.py',
+  command : ['python3', meson.project_source_root() / 'asb.py',
     '--load-address-blob', '0x20000', '--magic-num', '0xCB', '--version',
     '0x0', '--load-address-wired', '0xC000', '-i', '6', '--options', '0x1',
     '-o', './temp', '-port', get_option('tty'), '--bin', bin, '-clean'],
